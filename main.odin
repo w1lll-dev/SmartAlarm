@@ -2,7 +2,7 @@ package main
 
 import "core:log"
 import ma "vendor:miniaudio"
-import sdl "vendor:sdl3"
+import sdl "vendor:sdl2"
 
 SCREEN_WIDTH :: 128
 SCREEN_HEIGHT :: 160
@@ -35,37 +35,34 @@ main :: proc() {
 	// assert(ma.device_init(nil, &deviceConfig, &device) == .SUCCESS)
 	context.logger = log.create_console_logger()
 
-	init := sdl.Init({.VIDEO})
-	if !init do log.panicf("Could not init SDL", sdl.GetError())
-	else do defer sdl.Quit()
+	assert(sdl.Init(sdl.INIT_VIDEO) == 0, sdl.GetErrorString())
+	defer sdl.Quit()
 
-	win := sdl.CreateWindow("SmartAlarm", SCREEN_WIDTH, SCREEN_HEIGHT, {})
-	if win == nil do log.panicf("Could not create window", sdl.GetError())
-	else do defer sdl.DestroyWindow(win)
+	win := sdl.CreateWindow(
+		"SmartAlarm",
+		sdl.WINDOWPOS_CENTERED,
+		sdl.WINDOWPOS_CENTERED,
+		SCREEN_WIDTH,
+		SCREEN_HEIGHT,
+		sdl.WINDOW_SHOWN,
+	)
+	assert(win != nil, sdl.GetErrorString())
+	defer sdl.DestroyWindow(win)
 
-	gpu := sdl.CreateGPUDevice({.SPIRV}, true, nil)
-	if gpu == nil do log.panicf("Could not create GPU device", sdl.GetError())
-	else do defer sdl.DestroyGPUDevice(gpu)
-
-	claim := sdl.ClaimWindowForGPUDevice(gpu, win)
-	if !claim do log.panicf("Could not claim window for gpu device", sdl.GetError())
+	rend := sdl.CreateRenderer(win, -1, sdl.RENDERER_SOFTWARE)
+	assert(rend != nil, sdl.GetErrorString())
+	defer sdl.DestroyRenderer(rend)
 
 	gameLoop: for {
-		// process events
 		ev: sdl.Event
 		for sdl.PollEvent(&ev) {
 			#partial switch ev.type {
 			case .QUIT:
-				break gameLoop
-			case .KEY_DOWN:
-				if ev.key.scancode == .ESCAPE do break gameLoop
+				return
+			case .KEYDOWN:
+				if ev.key.keysym.scancode == sdl.SCANCODE_ESCAPE do return
 			}
 		}
-
-		// update game state
-
-
-		// render
 	}
 }
 
