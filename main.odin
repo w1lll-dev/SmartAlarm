@@ -7,53 +7,6 @@ import sdl "vendor:sdl2"
 SCREEN_WIDTH :: 128
 SCREEN_HEIGHT :: 160
 
-AUDIO_FORMAT :: ma.format.f32
-AUDIO_CHANNELS :: 2
-AUDIO_SAMPLE_RATE :: 44100
-AUDIO_OUTPUT_FILE :: "output.wav"
-
-CaptureDataCallback :: proc "c" (pDevice: ^ma.device, pOutput, pInput: rawptr, frameCount: u32) {
-	pEncoder := cast(^ma.encoder)pDevice.pUserData
-	if pEncoder == nil do return
-
-	ma.encoder_write_pcm_frames(pEncoder, pInput, u64(frameCount), nil)
-}
-
-PlaybackDataCallback :: proc "c" (pDevice: ^ma.device, pOutput, pInput: rawptr, frameCount: u32) {
-	pDecoder := cast(^ma.decoder)pDevice.pUserData
-	if pDecoder == nil do return
-
-	ma.decoder_read_pcm_frames(pDecoder, pOutput, u64(frameCount), nil)
-}
-
-InitCaptureDevice :: proc(encoder: ^ma.encoder, device: ^ma.device) {
-	encoderConfig := ma.encoder_config_init(.wav, AUDIO_FORMAT, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE)
-
-	assert(ma.encoder_init_file(AUDIO_OUTPUT_FILE, &encoderConfig, encoder) == .SUCCESS)
-
-	deviceConfig := ma.device_config_init(.capture)
-	deviceConfig.capture.format = AUDIO_FORMAT
-	deviceConfig.capture.channels = AUDIO_CHANNELS
-	deviceConfig.sampleRate = AUDIO_SAMPLE_RATE
-	deviceConfig.dataCallback = CaptureDataCallback
-	deviceConfig.pUserData = encoder
-
-	assert(ma.device_init(nil, &deviceConfig, device) == .SUCCESS)
-}
-
-InitPlaybackDevice :: proc(decoder: ^ma.decoder, device: ^ma.device) {
-	assert(ma.decoder_init_file(AUDIO_OUTPUT_FILE, nil, decoder) == .SUCCESS)
-
-	deviceConfig := ma.device_config_init(.playback)
-	deviceConfig.playback.format = AUDIO_FORMAT
-	deviceConfig.playback.channels = AUDIO_CHANNELS
-	deviceConfig.sampleRate = AUDIO_SAMPLE_RATE
-	deviceConfig.dataCallback = PlaybackDataCallback
-	deviceConfig.pUserData = decoder
-
-	assert(ma.device_init(nil, &deviceConfig, device) == .SUCCESS)
-}
-
 main :: proc() {
 	context.logger = log.create_console_logger()
 
@@ -66,8 +19,14 @@ main :: proc() {
 	defer ma.encoder_uninit(&encoder)
 	defer ma.device_uninit(&captureDevice)
 
-	decoder: ma.decoder
-	playbackDevice: ma.device
+	// Init playback device
+	// decoder: ma.decoder
+	// playbackDevice: ma.device
+
+	// InitPlaybackDevice(&decoder, &playbackDevice)
+
+	// defer ma.decoder_uninit(&decoder)
+	// defer ma.device_uninit(&playbackDevice)
 
 	// Init SDL
 	assert(sdl.Init(sdl.INIT_VIDEO) == 0, sdl.GetErrorString())
@@ -81,12 +40,26 @@ main :: proc() {
 		SCREEN_HEIGHT,
 		sdl.WINDOW_SHOWN,
 	)
+
 	assert(win != nil, sdl.GetErrorString())
 	defer sdl.DestroyWindow(win)
 
 	rend := sdl.CreateRenderer(win, -1, sdl.RENDERER_SOFTWARE)
 	assert(rend != nil, sdl.GetErrorString())
 	defer sdl.DestroyRenderer(rend)
+
+	offset: i32 = 10
+	height: i32 = 50
+	outlineSize: i32 = 2
+
+	rects: [dynamic]sdl.Rect
+	selectRect: sdl.Rect = {
+		offset - outlineSize,
+		offset + i32(len(rects)) * (height + offset) - outlineSize,
+		SCREEN_WIDTH - offset * 2 + outlineSize * 2,
+		height + outlineSize * 2,
+	}
+	curRect: i32
 
 	mainLoop: for {
 		// Process events
@@ -105,23 +78,41 @@ main :: proc() {
 					log.debugf("Recording...")
 					ma.device_start(&captureDevice)
 				case .RETURN:
-					// Init playback device
+				// log.debugf("Playing audio...")
+				// ma.device_start(&playbackDevice)
+				case .E:
+					rect: sdl.Rect = {
+						offset,
+						offset + i32(len(rects)) * (height + offset),
+						SCREEN_WIDTH - offset * 2,
+						height,
+					}
+					append(&rects, rect)
+				case .DOWN:
+					for i in 0 ..< i32(len(rects)) {
+						rects[i].y -= height + offset
 
-					InitPlaybackDevice(&decoder, &playbackDevice)
+						if i == curRect do selectRect.y = rects[i].y - outlineSize
 
-					defer ma.decoder_uninit(&decoder)
-					defer ma.device_uninit(&playbackDevice)
-					log.debugf("Playing audio...")
-					ma.device_start(&playbackDevice)
+					}
+					curRect += 1
+				case .UP:
+					for i in 0 ..< i32(len(rects)) {
+						if curRect == 0 do break
+						rects[i].y += height + offset
+						if i == curRect do selectRect.y = rects[i].y - outlineSize
+					}
+					curRect -= 1
 				}
 			case .KEYUP:
 				#partial switch ev.key.keysym.sym {
 				case .SPACE:
 					log.debugf("Stopped Recording.")
 					ma.device_stop(&captureDevice)
+
 				case .RETURN:
-					log.debugf("Stopped playing")
-					ma.device_stop(&playbackDevice)
+				// log.debugf("Stopped playing")
+				// ma.device_stop(&playbackDevice)
 				}
 			}
 		}
@@ -132,6 +123,15 @@ main :: proc() {
 		// Render
 		sdl.SetRenderDrawColor(rend, 0, 0, 0, 255)
 		sdl.RenderClear(rend)
+
+		sdl.SetRenderDrawColor(rend, 0, 0, 255, 255)
+		sdl.RenderFillRect(rend, &selectRect)
+
+		sdl.SetRenderDrawColor(rend, 255, 255, 255, 255)
+		for i in 0 ..< len(rects) {
+			sdl.RenderFillRect(rend, &rects[i])
+		}
+
 		sdl.RenderPresent(rend)
 	}
 }
